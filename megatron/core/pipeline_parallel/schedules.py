@@ -1155,7 +1155,6 @@ def forward_backward_pipelining_with_interleaving(
     send_next_wait_handle = None
     send_prev_wait_handle = None
     recv_next_wait_handles = []
-    recv_next = False
 
     for k in range(num_warmup_microbatches):
         cur_model_chunk_id = get_model_chunk_id(k, forward=True)
@@ -1311,6 +1310,8 @@ def forward_backward_pipelining_with_interleaving(
                     output_tensor_grads[num_model_chunks - 1].append(bwd_recv_buffer[-1])
     nvtx_range_pop(suffix="warmup")
 
+    recv_next = False
+
     # Run 1F1B in steady state.
     nvtx_range_push(suffix="steady")
     for k in range(num_microbatches_remaining):
@@ -1387,8 +1388,10 @@ def forward_backward_pipelining_with_interleaving(
             # assert fwd_wait_handles is not None
 
             # Backward pass.
+            backward_k = k
+            backward_model_chunk_id = get_model_chunk_id(backward_k, forward=False)
             if recv_next:
-                (bwd_recv_buffer[backward_k % bwd_recv_buffer_size], bwd_wait_handles) = (
+                (bwd_recv_buffer[(backward_k - 1) % bwd_recv_buffer_size], bwd_wait_handles) = (
                     p2p_communication.send_backward_recv_backward(
                         None,
                         recv_next=True,
@@ -1406,12 +1409,10 @@ def forward_backward_pipelining_with_interleaving(
                         recv_next_wait_handles.append(bwd_wait_handles.pop("recv_next"))
                 
                 output_tensor_grads[next_backward_model_chunk_id].append(
-                    bwd_recv_buffer[backward_k % bwd_recv_buffer_size]
+                    bwd_recv_buffer[(backward_k - 1) % bwd_recv_buffer_size]
                 )
-                bwd_recv_buffer[(backward_k + 1) % bwd_recv_buffer_size] = None
+                bwd_recv_buffer[backward_k % bwd_recv_buffer_size] = None
 
-            backward_k = k
-            backward_model_chunk_id = get_model_chunk_id(backward_k, forward=False)
             if not is_vp_last_stage(vp_stage=backward_model_chunk_id):
                 if config.overlap_p2p_comm_warmup_flush:
                     assert recv_next_wait_handles, (
