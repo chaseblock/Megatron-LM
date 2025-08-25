@@ -1332,11 +1332,10 @@ def forward_backward_pipelining_with_interleaving(
             # Start the process of receiving the necessary data
             if recv_prev:
                 fwd_recv_buffer[(forward_k - 1) % fwd_recv_buffer_size], fwd_wait_handles = (
-                    p2p_communication.send_forward_recv_forward(
+                    p2p_communicator.send_forward_recv_forward(
                         None,
                         recv_prev=True,
                         tensor_shape=tensor_shape,
-                        config=config,
                         overlap_p2p_comm=True
                     )
                 )
