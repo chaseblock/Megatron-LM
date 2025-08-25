@@ -1341,9 +1341,8 @@ def forward_backward_pipelining_with_interleaving(
                     )
                 )
 
-                if fwd_wait_handles is not None:
-                    if "recv_prev" in fwd_wait_handles:
-                        recv_prev_wait_handles.append(fwd_wait_handles.pop("recv_prev"))
+                if "recv_prev" in fwd_wait_handles:
+                    recv_prev_wait_handles.append(fwd_wait_handles.pop("recv_prev"))
 
                 input_tensors[next_forward_model_chunk_id].append(
                     fwd_recv_buffer[(forward_k - 1) % fwd_recv_buffer_size]
@@ -1510,6 +1509,27 @@ def forward_backward_pipelining_with_interleaving(
                 input_tensors[next_forward_model_chunk_id].append(input_tensor)
             if recv_next:
                 output_tensor_grads[next_backward_model_chunk_id].append(output_tensor_grad)
+
+    if config.overlap_p2p_comm:
+        # Start the process of receiving the necessary data
+        if recv_prev:
+            fwd_recv_buffer[(forward_k - 1) % fwd_recv_buffer_size], fwd_wait_handles = (
+                p2p_communication.send_forward_recv_forward(
+                    None,
+                    recv_prev=True,
+                    tensor_shape=tensor_shape,
+                    config=config,
+                    overlap_p2p_comm=True
+                )
+            )
+
+            if "recv_prev" in fwd_wait_handles:
+                recv_prev_wait_handles.append(fwd_wait_handles.pop("recv_prev"))
+
+            input_tensors[next_forward_model_chunk_id].append(
+                fwd_recv_buffer[(forward_k - 1) % fwd_recv_buffer_size]
+            )
+            fwd_recv_buffer[(forward_k) % fwd_recv_buffer_size] = None
 
     deallocate_output_tensor(output_tensor, config.deallocate_pipeline_outputs)
     nvtx_range_pop(suffix="steady")
